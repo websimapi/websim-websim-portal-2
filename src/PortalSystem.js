@@ -12,8 +12,8 @@ export class PortalSystem {
         };
         
         this.renderTargets = {
-            blue: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2),
-            orange: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2)
+            blue: new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType }),
+            orange: new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType })
         };
 
         // Screen-space texture projection shader
@@ -71,8 +71,8 @@ export class PortalSystem {
         const size = new THREE.Vector2();
         this.renderer.getDrawingBufferSize(size);
         
-        this.renderTargets.blue.setSize(size.width / 2, size.height / 2);
-        this.renderTargets.orange.setSize(size.width / 2, size.height / 2);
+        this.renderTargets.blue.setSize(size.width, size.height);
+        this.renderTargets.orange.setSize(size.width, size.height);
         
         this.materials.blue.uniforms.resolution.value.copy(size);
         this.materials.orange.uniforms.resolution.value.copy(size);
@@ -91,6 +91,7 @@ export class PortalSystem {
         const borderGeo = new THREE.RingGeometry(1, 1.1, 32); // Slightly flawed logic for a rectangular portal, let's use EdgesGeometry
         const edges = new THREE.EdgesGeometry(geometry);
         const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: color, linewidth: 4 }));
+        line.position.z = 0.001;
         mesh.add(line);
         
         this.scene.add(mesh);

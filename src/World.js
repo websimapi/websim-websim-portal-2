@@ -11,10 +11,12 @@ export class World {
 
     init() {
         const wallTex = this.textureLoader.load('grid_wall.png');
+        wallTex.colorSpace = THREE.SRGBColorSpace;
         wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping;
         wallTex.repeat.set(4, 2);
         
         const floorTex = this.textureLoader.load('grid_floor.png');
+        floorTex.colorSpace = THREE.SRGBColorSpace;
         floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
         floorTex.repeat.set(4, 4);
 
