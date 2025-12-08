@@ -211,27 +211,33 @@ export class Player {
         // Gravity
         this.playerVelocity.y -= this.gravity * deltaTime;
 
+        // Capture start position before move
+        const startPos = new THREE.Vector3();
+        this.playerCollider.getCenter(startPos);
+
         // Apply Velocity
         const deltaPosition = this.playerVelocity.clone().multiplyScalar(deltaTime);
         this.playerCollider.translate(deltaPosition);
 
+        // Capture end position after move
+        const endPos = new THREE.Vector3();
+        this.playerCollider.getCenter(endPos);
+
         // Check Portal Teleport
-        const teleportRotDelta = this.portalSystem.checkTeleport(this.playerCollider, this.playerVelocity, this.camera);
+        const teleportRotDelta = this.portalSystem.checkTeleport(this.playerCollider, startPos, endPos, this.playerVelocity);
         
         if (teleportRotDelta) {
             // Adjust Yaw based on quaternion delta
-            // This is rough approximation for FPS camera
             const direction = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, this.yaw, 0));
             direction.applyQuaternion(teleportRotDelta);
             
             // Extract new yaw from direction
-            // Note: This discards pitch during teleport to avoid disorientation, or we can calculate full Euler
             const newYaw = Math.atan2(-direction.x, -direction.z);
             this.yaw = newYaw;
             
             // Re-sync camera
             this.updateCamera();
-            return; // Skip collision this frame to avoid getting stuck in wall behind portal
+            return; // Skip collision this frame
         }
 
         // Collision with World
@@ -251,8 +257,18 @@ export class Player {
         const pPos = this.playerCollider.start.clone();
         const pRadius = this.playerCollider.radius;
 
+        // Capture center for portal hole check
+        const pCenter = new THREE.Vector3();
+        this.playerCollider.getCenter(pCenter);
+
         // Ground/Wall check
         for (const mesh of colliders) {
+            // Skip collision if this is a wall with an active portal we are walking into
+            // This allows us to stand 'inside' the wall/portal frame
+            if (mesh.userData.isWall && !this.portalSystem.shouldCollide(mesh, pCenter)) {
+                continue;
+            }
+
             // Simplified Box3 collision
             const box = new THREE.Box3().setFromObject(mesh);
             const closestPoint = new THREE.Vector3();

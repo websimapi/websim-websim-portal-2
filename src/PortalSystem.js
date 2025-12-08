@@ -178,7 +178,27 @@ export class PortalSystem {
         }
     }
 
-    checkTeleport(playerCapsule, playerVelocity, playerCamera) {
+    shouldCollide(wall, point) {
+        const portals = [this.portals.blue, this.portals.orange];
+        for(const portal of portals) {
+            if(!portal.userData.active) continue;
+            if(portal.userData.wall !== wall) continue;
+
+            const localPoint = point.clone();
+            portal.worldToLocal(localPoint);
+            
+            // Check if within bounds of the portal hole
+            // Portal geom is 2x3.5. 
+            // We use slightly smaller bounds to keep walls solid at the very frame edges
+            // And a generous Z depth to allow the player to stand "in" the doorframe
+            if (Math.abs(localPoint.x) < 0.8 && Math.abs(localPoint.y) < 1.6 && Math.abs(localPoint.z) < 2.0) {
+                return false; 
+            }
+        }
+        return true;
+    }
+
+    checkTeleport(playerCapsule, startPos, endPos, playerVelocity) {
         if (!this.portals.blue.userData.active || !this.portals.orange.userData.active) return false;
 
         const pairs = [
@@ -189,87 +209,92 @@ export class PortalSystem {
         for (const pair of pairs) {
             const { src, dest } = pair;
             
-            // Check distance to portal center
-            // Portal dimensions approx 2 wide, 3.5 tall
-            const pPos = new THREE.Vector3();
-            playerCapsule.getCenter(pPos);
+            // Portal Normal (local Z+ is out)
+            const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(src.quaternion);
             
-            const dist = pPos.distanceTo(src.position);
+            // Vectors from portal center to positions
+            const vecStart = startPos.clone().sub(src.position);
+            const vecEnd = endPos.clone().sub(src.position);
             
-            if (dist < 1.5) {
-                // Check if we are crossing the plane
-                // Dot product of vector (Portal -> Player) and Portal Normal
-                // If it flips sign or is very small while moving INTO the portal...
-                
-                const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(src.quaternion);
-                const vecToPlayer = pPos.clone().sub(src.position);
-                const dot = vecToPlayer.dot(normal);
-                
-                // Are we moving into the portal?
-                const velDot = playerVelocity.clone().normalize().dot(normal);
+            const dotStart = vecStart.dot(normal);
+            const dotEnd = vecEnd.dot(normal);
 
-                // Simple check: if we are very close and moving roughly towards it (velDot < 0)
-                if (Math.abs(dot) < 0.2 && velDot < 0) {
-                    return this.teleport(playerCapsule, playerVelocity, playerCamera, src, dest);
+            // Crossing check: Sign change (positive to negative means entering)
+            if (dotStart > 0 && dotEnd <= 0) {
+                // We crossed the plane. Now check if we are within the rectangle.
+                
+                // Find intersection point fraction along the path
+                const totalDist = dotStart - dotEnd;
+                const frac = dotStart / totalDist;
+                
+                const intersectPoint = startPos.clone().lerp(endPos, frac);
+                
+                // Check bounds in local space
+                const localIntersect = intersectPoint.clone();
+                src.worldToLocal(localIntersect);
+                
+                // Slightly wider acceptance for teleport than for collision hole to ensure we catch it
+                if (Math.abs(localIntersect.x) < 1.0 && Math.abs(localIntersect.y) < 1.75) {
+                    return this.teleport(playerCapsule, playerVelocity, src, dest, intersectPoint, endPos);
                 }
             }
         }
         return false;
     }
 
-    teleport(capsule, velocity, camera, src, dest) {
+    teleport(capsule, velocity, src, dest, intersectPoint, originalEndPos) {
         // Play sound
         const audio = new Audio('teleport.mp3');
         audio.volume = 0.5;
         audio.play().catch(() => {});
 
-        // 1. Position Transfer
-        const currentPos = new THREE.Vector3();
-        capsule.getCenter(currentPos);
-        
+        // 1. Calculate relative transform logic
         const srcInverse = src.matrixWorld.clone().invert();
-        const localPos = currentPos.clone().applyMatrix4(srcInverse);
-        
-        // Flip Z because we enter front and exit front
-        // And rotate 180 Y
         const rotationY180 = new THREE.Matrix4().makeRotationY(Math.PI);
         const destMatrix = dest.matrixWorld.clone().multiply(rotationY180);
         
-        const newWorldPos = localPos.applyMatrix4(destMatrix);
+        // 2. Teleport the Capsule
+        // Transform the intersection point (where we hit the portal)
+        const localIntersect = intersectPoint.clone().applyMatrix4(srcInverse);
+        const destIntersect = localIntersect.applyMatrix4(destMatrix);
         
-        // Offset slightly out of the destination portal to prevent instant teleport back
+        // Calculate remaining movement vector (how much we moved PAST the portal plane)
+        const movementVec = originalEndPos.clone().sub(intersectPoint);
+        
+        // Transform movement vector
+        const srcQInv = src.quaternion.clone().invert();
+        const localMove = movementVec.applyQuaternion(srcQInv);
+        // Rotate 180 Y locally implies x -> -x, z -> -z for the exit
+        localMove.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); 
+        const newMove = localMove.applyQuaternion(dest.quaternion);
+        
+        // New position = DestIntersect + NewMove + Tiny Push
+        const finalPos = destIntersect.clone().add(newMove);
+        
+        // Push slightly out to prevent immediate back-trigger (epsilon)
         const destNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(dest.quaternion);
-        newWorldPos.add(destNormal.multiplyScalar(0.5));
-        
-        capsule.translate(newWorldPos.sub(currentPos));
+        finalPos.add(destNormal.multiplyScalar(0.05));
 
-        // 2. Velocity Rotation
-        // Transform direction vector
-        const localVel = velocity.clone().applyQuaternion(src.quaternion.clone().invert());
-        // Rotate 180 Y locally implies x -> -x, z -> -z
+        // Apply translation to capsule
+        // We need to move the capsule so its center is at finalPos
+        const currentCenter = new THREE.Vector3();
+        capsule.getCenter(currentCenter); // effectively 'originalEndPos'
+        
+        const totalTranslation = finalPos.sub(currentCenter);
+        capsule.translate(totalTranslation);
+
+        // 3. Velocity Rotation
+        const localVel = velocity.clone().applyQuaternion(srcQInv);
         localVel.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
         const newVel = localVel.applyQuaternion(dest.quaternion);
         velocity.copy(newVel);
 
-        // 3. Camera Rotation
-        // This is tricky because controls usually manage rotation via Euler angles (yaw/pitch).
-        // We need to calculate the delta rotation between portals and apply it to the camera look.
-        
-        // Get relative quaternion
+        // 4. Return Rotation Delta for Camera
         const srcQ = src.quaternion.clone();
         const destQ = dest.quaternion.clone();
-        
-        // The rotation needed: Inverse(Src) -> Rotate 180 Y -> Dest
         const rot180 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI);
         const deltaRot = destQ.multiply(rot180).multiply(srcQ.invert());
         
-        // Apply to camera quaternion directly? 
-        // Usually fps controls manage rotation via internal vars (pitch/yaw). 
-        // We might need to expose a method in Player to "add rotation".
-        // But for visual consistency we can try modifying the camera, 
-        // though the next control update might snap it back if we don't update the controller state.
-        
-        // Return the rotation delta so the player controller can apply it to its state
         return deltaRot;
     }
 }
