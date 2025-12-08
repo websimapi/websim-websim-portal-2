@@ -12,8 +12,12 @@ export class PortalSystem {
         };
         
         this.renderTargets = {
-            blue: new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType }),
-            orange: new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, { type: THREE.HalfFloatType })
+            blue: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2, {
+                type: THREE.HalfFloatType
+            }),
+            orange: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2, {
+                type: THREE.HalfFloatType
+            })
         };
 
         // Screen-space texture projection shader
@@ -60,7 +64,7 @@ export class PortalSystem {
         this.materials.blue.uniforms.resolution.value.copy(size);
         this.materials.orange.uniforms.resolution.value.copy(size);
 
-        this.portalCam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        this.portalCam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
         this.tempMatrix = new THREE.Matrix4();
         
         this.helperVec3 = new THREE.Vector3();
@@ -71,6 +75,7 @@ export class PortalSystem {
         const size = new THREE.Vector2();
         this.renderer.getDrawingBufferSize(size);
         
+        // Keep portals at full resolution for quality matching
         this.renderTargets.blue.setSize(size.width, size.height);
         this.renderTargets.orange.setSize(size.width, size.height);
         
@@ -88,10 +93,9 @@ export class PortalSystem {
         mesh.userData.active = false;
         
         // Add a border
-        const borderGeo = new THREE.RingGeometry(1, 1.1, 32); // Slightly flawed logic for a rectangular portal, let's use EdgesGeometry
         const edges = new THREE.EdgesGeometry(geometry);
-        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: color, linewidth: 4 }));
-        line.position.z = 0.001;
+        // Using a slightly thicker/brighter line material if possible, or just standard
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: color }));
         mesh.add(line);
         
         this.scene.add(mesh);
