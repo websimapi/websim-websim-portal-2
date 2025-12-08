@@ -16,11 +16,66 @@ export class PortalSystem {
             orange: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2)
         };
 
+        // Screen-space texture projection shader
+        const shader = {
+            vertexShader: `
+                varying vec4 vPos;
+                void main() {
+                    vPos = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = vPos;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D map;
+                uniform vec2 resolution;
+                void main() {
+                    vec2 uv = gl_FragCoord.xy / resolution;
+                    gl_FragColor = texture2D(map, uv);
+                }
+            `
+        };
+
+        this.materials = {
+            blue: new THREE.ShaderMaterial({
+                uniforms: {
+                    map: { value: this.renderTargets.blue.texture },
+                    resolution: { value: new THREE.Vector2() }
+                },
+                vertexShader: shader.vertexShader,
+                fragmentShader: shader.fragmentShader
+            }),
+            orange: new THREE.ShaderMaterial({
+                uniforms: {
+                    map: { value: this.renderTargets.orange.texture },
+                    resolution: { value: new THREE.Vector2() }
+                },
+                vertexShader: shader.vertexShader,
+                fragmentShader: shader.fragmentShader
+            })
+        };
+
+        // Set initial resolution
+        const size = new THREE.Vector2();
+        this.renderer.getDrawingBufferSize(size);
+        this.materials.blue.uniforms.resolution.value.copy(size);
+        this.materials.orange.uniforms.resolution.value.copy(size);
+
         this.portalCam = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
         this.tempMatrix = new THREE.Matrix4();
         
         this.helperVec3 = new THREE.Vector3();
         this.helperBox3 = new THREE.Box3();
+    }
+
+    handleResize() {
+        const size = new THREE.Vector2();
+        this.renderer.getDrawingBufferSize(size);
+        
+        this.renderTargets.blue.setSize(size.width / 2, size.height / 2);
+        this.renderTargets.orange.setSize(size.width / 2, size.height / 2);
+        
+        this.materials.blue.uniforms.resolution.value.copy(size);
+        this.materials.orange.uniforms.resolution.value.copy(size);
     }
 
     createPortalMesh(color) {
@@ -60,8 +115,8 @@ export class PortalSystem {
         
         // If both portals are active, switch materials to render targets
         if (this.portals.blue.userData.active && this.portals.orange.userData.active) {
-            this.portals.blue.material = new THREE.MeshBasicMaterial({ map: this.renderTargets.blue.texture });
-            this.portals.orange.material = new THREE.MeshBasicMaterial({ map: this.renderTargets.orange.texture });
+            this.portals.blue.material = this.materials.blue;
+            this.portals.orange.material = this.materials.orange;
         }
     }
 

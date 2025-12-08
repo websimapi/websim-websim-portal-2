@@ -26,9 +26,7 @@ window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    // Update portal render targets
-    portalSystem.renderTargets.blue.setSize(window.innerWidth/2, window.innerHeight/2);
-    portalSystem.renderTargets.orange.setSize(window.innerWidth/2, window.innerHeight/2);
+    portalSystem.handleResize();
 });
 
 // Loop
