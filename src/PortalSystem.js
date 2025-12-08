@@ -11,13 +11,16 @@ export class PortalSystem {
             orange: this.createPortalMesh(0xffaa00)
         };
         
+        // Create pairs of render targets for ping-pong rendering (recursion support)
+        const createTarget = () => new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2, {
+            type: THREE.HalfFloatType,
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter
+        });
+
         this.renderTargets = {
-            blue: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2, {
-                type: THREE.HalfFloatType
-            }),
-            orange: new THREE.WebGLRenderTarget(window.innerWidth / 2, window.innerHeight / 2, {
-                type: THREE.HalfFloatType
-            })
+            blue: [createTarget(), createTarget()],
+            orange: [createTarget(), createTarget()]
         };
 
         // Screen-space texture projection shader with Oval Border
@@ -93,7 +96,7 @@ export class PortalSystem {
         this.materials = {
             blue: new THREE.ShaderMaterial({
                 uniforms: {
-                    map: { value: this.renderTargets.blue.texture },
+                    map: { value: this.renderTargets.blue[0].texture },
                     resolution: { value: new THREE.Vector2() },
                     time: { value: 0 },
                     borderColor: { value: new THREE.Color(0x00aaff) },
@@ -105,7 +108,7 @@ export class PortalSystem {
             }),
             orange: new THREE.ShaderMaterial({
                 uniforms: {
-                    map: { value: this.renderTargets.orange.texture },
+                    map: { value: this.renderTargets.orange[0].texture },
                     resolution: { value: new THREE.Vector2() },
                     time: { value: 0 },
                     borderColor: { value: new THREE.Color(0xffaa00) },
@@ -134,8 +137,9 @@ export class PortalSystem {
         const size = new THREE.Vector2();
         this.renderer.getDrawingBufferSize(size);
         
-        this.renderTargets.blue.setSize(size.width / 2, size.height / 2);
-        this.renderTargets.orange.setSize(size.width / 2, size.height / 2);
+        // Resize all buffers
+        this.renderTargets.blue.forEach(rt => rt.setSize(size.width / 2, size.height / 2));
+        this.renderTargets.orange.forEach(rt => rt.setSize(size.width / 2, size.height / 2));
         
         this.materials.blue.uniforms.resolution.value.copy(size);
         this.materials.orange.uniforms.resolution.value.copy(size);
@@ -198,19 +202,39 @@ export class PortalSystem {
         const currentXrEnabled = this.renderer.xr.enabled;
         this.renderer.xr.enabled = false;
 
-        this.renderPortalView('blue', 'orange');
-        this.renderPortalView('orange', 'blue');
+        // Iterative rendering for recursion
+        // We render back-and-forth between buffers to propagate the portal views
+        const iterations = 4; // Higher = deeper recursion visibility
+        
+        for (let i = 0; i < iterations; i++) {
+            const writeIdx = i % 2;
+            const readIdx = (i + 1) % 2;
+
+            // Before rendering, update materials to look at the 'read' texture (from previous step)
+            // This ensures that when we render the view looking into the portal, 
+            // any nested portals visible inside use the latest available image.
+            this.materials.blue.uniforms.map.value = this.renderTargets.blue[readIdx].texture;
+            this.materials.orange.uniforms.map.value = this.renderTargets.orange[readIdx].texture;
+
+            // Render to the 'write' target
+            this.renderPortalView('blue', 'orange', this.renderTargets.blue[writeIdx]);
+            this.renderPortalView('orange', 'blue', this.renderTargets.orange[writeIdx]);
+        }
+
+        // Final Assignment: Ensure materials point to the latest result for the Main Render
+        const finalIdx = (iterations - 1) % 2;
+        this.materials.blue.uniforms.map.value = this.renderTargets.blue[finalIdx].texture;
+        this.materials.orange.uniforms.map.value = this.renderTargets.orange[finalIdx].texture;
 
         // Restore state
         this.renderer.setRenderTarget(currentRenderTarget);
         this.renderer.xr.enabled = currentXrEnabled;
     }
 
-    renderPortalView(sourceName, destName) {
+    renderPortalView(sourceName, destName, renderTarget) {
         const sourcePortal = this.portals[sourceName];
         const destPortal = this.portals[destName];
-        const renderTarget = this.renderTargets[sourceName];
-
+        
         // 1. Calculate Virtual Camera Matrix
         const rotationY180 = new THREE.Matrix4().makeRotationY(Math.PI);
         
