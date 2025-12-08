@@ -12,9 +12,9 @@ scene.fog = new THREE.Fog(0x88ccff, 0, 50);
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
 renderer.localClippingEnabled = true;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
 // Systems
@@ -40,6 +40,7 @@ function animate() {
 
     // 1. Logic
     player.update(deltaTime);
+    portalSystem.update(deltaTime);
 
     // 2. Render Portals (Draws to textures)
     portalSystem.render();
