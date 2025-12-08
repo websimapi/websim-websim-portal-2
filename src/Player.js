@@ -54,19 +54,22 @@ export class Player {
             }
         });
 
-        document.body.addEventListener('click', () => {
-            if (!this.isMobile() && document.pointerLockElement !== document.body) {
+        document.addEventListener('mousedown', (event) => {
+            if (this.isMobile()) return;
+
+            if (document.pointerLockElement !== document.body) {
                 document.body.requestPointerLock();
-            } else if (!this.isMobile()) {
-                this.shootPortal('blue');
+            } else {
+                if (event.button === 0) {
+                    this.shootPortal('blue');
+                } else if (event.button === 2) {
+                    this.shootPortal('orange');
+                }
             }
         }); 
         
-        document.body.addEventListener('contextmenu', (e) => {
+        document.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            if (!this.isMobile() && document.pointerLockElement === document.body) {
-                this.shootPortal('orange');
-            }
         });
     }
 
@@ -243,8 +246,9 @@ export class Player {
         // Simple sphere collisions against boxes
         // For a robust system we'd use Octree, but for this specific "World" with known boxes:
         const colliders = this.world.getColliders();
-        const pCenter = new THREE.Vector3();
-        this.playerCollider.getCenter(pCenter);
+        
+        // We primarily check the bottom sphere (feet) to prevent falling
+        const pPos = this.playerCollider.start.clone();
         const pRadius = this.playerCollider.radius;
 
         // Ground/Wall check
@@ -252,19 +256,37 @@ export class Player {
             // Simplified Box3 collision
             const box = new THREE.Box3().setFromObject(mesh);
             const closestPoint = new THREE.Vector3();
-            box.clampPoint(pCenter, closestPoint);
+            box.clampPoint(pPos, closestPoint);
             
-            const delta = pCenter.clone().sub(closestPoint);
-            const dist = delta.length();
+            const delta = pPos.clone().sub(closestPoint);
+            let dist = delta.length();
+            let normal = null;
+            let overlap = 0;
             
-            if (dist < pRadius) {
-                // Collision
-                const overlap = pRadius - dist;
-                const normal = delta.normalize();
-                
+            // Handle being inside the box (Tunneling fix)
+            if (dist < 0.0001 && box.containsPoint(pPos)) {
+                 const dx = Math.min(Math.abs(pPos.x - box.min.x), Math.abs(box.max.x - pPos.x));
+                 const dy = Math.min(Math.abs(pPos.y - box.min.y), Math.abs(box.max.y - pPos.y));
+                 const dz = Math.min(Math.abs(pPos.z - box.min.z), Math.abs(box.max.z - pPos.z));
+                 
+                 const minAxis = Math.min(dx, dy, dz);
+                 normal = new THREE.Vector3();
+                 
+                 if (minAxis === dy) normal.y = (Math.abs(pPos.y - box.max.y) < Math.abs(pPos.y - box.min.y)) ? 1 : -1;
+                 else if (minAxis === dx) normal.x = (Math.abs(pPos.x - box.max.x) < Math.abs(pPos.x - box.min.x)) ? 1 : -1;
+                 else normal.z = (Math.abs(pPos.z - box.max.z) < Math.abs(pPos.z - box.min.z)) ? 1 : -1;
+                 
+                 overlap = minAxis + pRadius;
+            } else if (dist < pRadius) {
+                 normal = delta.normalize();
+                 overlap = pRadius - dist;
+            }
+
+            if (normal) {
                 // Push out
-                const correction = normal.multiplyScalar(overlap);
+                const correction = normal.clone().multiplyScalar(overlap);
                 this.playerCollider.translate(correction);
+                pPos.add(correction);
                 
                 // Adjust velocity
                 // If hitting floor (normal.y > 0.5)
@@ -283,7 +305,9 @@ export class Player {
         }
         
         // Floor reset if falling infinitely
-        if (pCenter.y < -20) {
+        const center = new THREE.Vector3();
+        this.playerCollider.getCenter(center);
+        if (center.y < -20) {
             this.playerCollider.start.set(0, 0.35, 0);
             this.playerCollider.end.set(0, 1.35, 0);
             this.playerVelocity.set(0, 0, 0);
