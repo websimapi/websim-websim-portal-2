@@ -42,7 +42,7 @@ export class PortalSystem {
         return mesh;
     }
 
-    placePortal(type, point, normal) {
+    placePortal(type, point, normal, wall) {
         const portal = this.portals[type];
         
         // Offset slightly from wall to prevent z-fighting
@@ -56,6 +56,7 @@ export class PortalSystem {
         portal.visible = true;
         portal.userData.active = true;
         portal.userData.normal = normal;
+        portal.userData.wall = wall;
         
         // If both portals are active, switch materials to render targets
         if (this.portals.blue.userData.active && this.portals.orange.userData.active) {
@@ -96,20 +97,19 @@ export class PortalSystem {
         this.portalCam.matrixWorldInverse.copy(newMatrix).invert();
         this.portalCam.projectionMatrix.copy(this.playerCamera.projectionMatrix);
 
-        // 2. Setup Clipping Plane
-        // We need to clip the wall that is blocking the camera (since camera is behind the wall).
-        // Plane aligned with destination portal, pointing into the room.
-        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(destPortal.quaternion);
-        // Offset plane slightly into the room to ensure the wall face is clipped
-        const constant = -destPortal.position.dot(normal) - 0.05;
-        const clippingPlane = new THREE.Plane(normal, constant);
-
-        const originalClipping = this.renderer.clippingPlanes;
-        this.renderer.clippingPlanes = [clippingPlane];
-
-        // 3. Hide Destination Portal
+        // 2. Hide Obstructions
+        // Instead of clipping planes (which can cut the whole world in half), 
+        // we temporarily hide the wall object the destination portal is attached to.
+        // The camera is technically "inside" or "behind" this wall.
+        
         const destVisible = destPortal.visible;
         destPortal.visible = false;
+        
+        let wallVisible = true;
+        if (destPortal.userData.wall) {
+            wallVisible = destPortal.userData.wall.visible;
+            destPortal.userData.wall.visible = false;
+        }
 
         // Render
         this.renderer.setRenderTarget(renderTarget);
@@ -117,8 +117,10 @@ export class PortalSystem {
         this.renderer.render(this.scene, this.portalCam);
 
         // Restore
-        this.renderer.clippingPlanes = originalClipping;
         destPortal.visible = destVisible;
+        if (destPortal.userData.wall) {
+            destPortal.userData.wall.visible = wallVisible;
+        }
     }
 
     checkTeleport(playerCapsule, playerVelocity, playerCamera) {
@@ -153,8 +155,7 @@ export class PortalSystem {
 
                 // Simple check: if we are very close and moving roughly towards it (velDot < 0)
                 if (Math.abs(dot) < 0.2 && velDot < 0) {
-                    this.teleport(playerCapsule, playerVelocity, playerCamera, src, dest);
-                    return true;
+                    return this.teleport(playerCapsule, playerVelocity, playerCamera, src, dest);
                 }
             }
         }

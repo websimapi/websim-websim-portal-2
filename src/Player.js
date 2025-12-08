@@ -168,7 +168,7 @@ export class Player {
                 audio.volume = 0.3;
                 audio.play().catch(()=>{});
 
-                this.portalSystem.placePortal(type, hit.point, hit.face.normal);
+                this.portalSystem.placePortal(type, hit.point, hit.face.normal, hit.object);
             }
         }
     }
