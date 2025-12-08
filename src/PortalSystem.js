@@ -85,51 +85,40 @@ export class PortalSystem {
         const destPortal = this.portals[destName];
         const renderTarget = this.renderTargets[sourceName];
 
-        // Calculate virtual camera position
-        // 1. Get player relative to Source Portal
-        const playerWorldPos = this.playerCamera.position;
-        const sourceInverse = sourcePortal.matrixWorld.clone().invert();
-        const playerLocal = playerWorldPos.clone().applyMatrix4(sourceInverse);
-        
-        // 2. Rotate 180 degrees around Y in local space (since portals exit opposite way)
-        // Actually, for a simple implementation, we assume portals are "windows". 
-        // Entering front of A comes out front of B.
-        // We need to mirror the coordinate on the Z axis (local) and rotate 180 around Y.
-        
+        // 1. Calculate Virtual Camera Matrix
         const rotationY180 = new THREE.Matrix4().makeRotationY(Math.PI);
-        const destMatrix = destPortal.matrixWorld.clone().multiply(rotationY180);
-        
-        // Apply this transform to the camera
-        this.portalCam.matrixAutoUpdate = false;
-        
-        // This is the transform from Source Local to Dest World
-        // We take the player's position relative to Source, and apply it to Dest
-        
-        // Simplification for the test: 
-        // Relative Matrix = SourceWorldInverse * CameraWorld
-        // New Camera World = DestWorld * Rotation(PI) * RelativeMatrix
         
         const relativeMatrix = sourcePortal.matrixWorld.clone().invert().multiply(this.playerCamera.matrixWorld);
         const newMatrix = destPortal.matrixWorld.clone().multiply(rotationY180).multiply(relativeMatrix);
         
+        this.portalCam.matrixAutoUpdate = false;
         this.portalCam.matrixWorld.copy(newMatrix);
         this.portalCam.matrixWorldInverse.copy(newMatrix).invert();
-        
-        // Update projection matrix to match player camera
         this.portalCam.projectionMatrix.copy(this.playerCamera.projectionMatrix);
 
+        // 2. Setup Clipping Plane
+        // We need to clip the wall that is blocking the camera (since camera is behind the wall).
+        // Plane aligned with destination portal, pointing into the room.
+        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(destPortal.quaternion);
+        // Offset plane slightly into the room to ensure the wall face is clipped
+        const constant = -destPortal.position.dot(normal) - 0.05;
+        const clippingPlane = new THREE.Plane(normal, constant);
+
+        const originalClipping = this.renderer.clippingPlanes;
+        this.renderer.clippingPlanes = [clippingPlane];
+
+        // 3. Hide Destination Portal
+        const destVisible = destPortal.visible;
+        destPortal.visible = false;
+
         // Render
-        // Hide destination portal in the view so we don't see the back of it blocking the view
-        // (Though technically we might want to see through it if recursive, but preventing blocking is key)
-        // A simple trick is setting near plane very close or using clipping planes.
-        // For this demo, let's just render.
-        
-        // Important: We shouldn't see the portal surface we are looking "out" of in the render.
-        // But since we are rendering from the perspective of the OTHER portal, that one is behind the camera.
-        
         this.renderer.setRenderTarget(renderTarget);
         this.renderer.clear();
         this.renderer.render(this.scene, this.portalCam);
+
+        // Restore
+        this.renderer.clippingPlanes = originalClipping;
+        destPortal.visible = destVisible;
     }
 
     checkTeleport(playerCapsule, playerVelocity, playerCamera) {
